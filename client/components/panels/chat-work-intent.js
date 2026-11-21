@@ -275,8 +275,8 @@
       '<span class="nts-mark"><svg viewBox="0 0 24 24"><path d="M9 11l2.5 2.5L16 8"/>' +
         '<rect x="4" y="4" width="16" height="16" rx="4"/></svg></span>' +
       '<span class="nts-copy"><b>这件事值得持续跟踪</b>' +
-        '<i>“' + ctx.esc(title) + '” · 可在输入框使用斜杠工作动作</i></span>' +
-      '<span class="nts-command"><kbd>/需求</kbd></span>' +
+        '<i>“' + ctx.esc(title) + '”</i></span>' +
+      '<button type="button" class="nts-create" data-proposal-act="review">确认需求与完成标准</button>' +
       '<button class="nts-close" data-proposal-act="dismiss" title="本次对话不再提示" aria-label="本次对话不再提示">' +
         '<svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
     box.classList.add('show');
@@ -288,9 +288,35 @@
     _renderProposal();
   }
 
-  function _proposalAction(e) {
+  async function _proposalAction(e) {
     const btn = e.target.closest('[data-proposal-act]');
     if (!btn || !ctx._pendingProposal) return;
+    if (btn.dataset.proposalAct === 'review') {
+      const got = ctx._pendingProposal;
+      if (got.opening) return;
+      const ref = ctx._ref, epoch = ctx._viewEpoch, muted = ctx._proposalMuted;
+      const owner = global.SoduWorkAPI?.taskStorageKey?.('ops');
+      const current = () => ctx._ref === ref && ctx._viewEpoch === epoch &&
+        global.SoduWorkAPI?.taskStorageKey?.('ops') === owner && ctx._lastProposal === got.key;
+      const restore = () => {
+        if (!current()) return;
+        ctx._pendingProposal = got; ctx._proposalMuted = muted; _renderProposal();
+      };
+      got.opening = true; btn.disabled = true;
+      try {
+        // A structured proposal opens a new confirmation card, never a refinement turn.
+        const accepted = await _openWorkAction({ id: 'work.requirement.create', text: '', title: '创建需求' },
+          { proposal: got.p });
+        if (!accepted) restore();
+      } catch (error) {
+        restore();
+        if (current()) global.petSay?.(String(error?.message || '工作表单没有打开'));
+      } finally {
+        got.opening = false;
+        if (btn.isConnected !== false) btn.disabled = false;
+      }
+      return;
+    }
     if (btn.dataset.proposalAct === 'dismiss') {
       _dismissProposal(true);
       const input = document.getElementById('nchatInput'); if (input) input.focus();

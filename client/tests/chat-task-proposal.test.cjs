@@ -108,6 +108,40 @@ test('a late failure cannot restore a proposal into another conversation or acco
   assert.equal(h.calls.invoked.length, 0);
 });
 
+test('reviewing a proposal keeps future proposals available in the same conversation', async () => {
+  const h = boot();
+  h.propose(proposal, 'first');
+  await h.click();
+  h.propose({...proposal, title: 'Another task'}, 'second');
+  assert.equal(h.ctx._pendingProposal?.key, 'second');
+  await h.click();
+  assert.equal(h.calls.invoked.length, 2);
+});
+
+test('replaying consolidated snapshots cannot surface an older proposal after confirmation', async () => {
+  const h = boot();
+  const history = ['older', 'latest'].map(id => ({id, state: 'done', result: JSON.stringify({proposal: {title: id}})}));
+  h.intent._maybeProposal({tools: history});
+  assert.equal(h.ctx._pendingProposal.key, 'latest');
+  await h.click();
+  h.intent._maybeProposal({tools: history});
+  assert.equal(h.ctx._pendingProposal, null);
+  h.intent._maybeProposal({tools: history.slice(0, 1)});
+  assert.equal(h.ctx._pendingProposal, null);
+});
+
+test('a delayed form opening leaves a newer suggestion visible', async () => {
+  const h = boot();
+  let release;
+  h.ctx._workCards.prepare = (_command, options) => new Promise(resolve => { release = () => resolve(options); });
+  h.propose(proposal, 'first');
+  const pending = h.click();
+  h.propose({...proposal, title: 'Another task'}, 'second');
+  release();
+  await pending;
+  assert.equal(h.ctx._pendingProposal.key, 'second');
+});
+
 test('dismiss still mutes the suggestion without opening a form', async () => {
   const h = boot();
   h.propose(proposal); h.button.dataset.proposalAct = 'dismiss';

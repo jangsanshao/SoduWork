@@ -38,7 +38,7 @@ if (typeof electron === 'string') {
     win = new BrowserWindow({show:false,width:1200,height:900,webPreferences:{contextIsolation:true,nodeIntegration:false,offscreen:true,backgroundThrottling:false}});
     win.webContents.session.webRequest.onBeforeRequest({urls:['http://*/*','https://*/*','ws://*/*','wss://*/*']},(_request,cb)=>cb({cancel:true}));
     await win.loadFile(fixture);
-    await js(`window.calls=[];window.tasks=[];window.toasts=[];window.petSay=t=>toasts.push(t);window.uid=()=> 'issue655-isolated-task';
+    await js(`window.calls=[];window.tasks=[];window.toasts=[];window.petSay=t=>toasts.push(t);window.uid=()=> 'issue655-isolated-task-'+(tasks.length+1);
       window.save=()=>calls.push({kind:'save-local'});window.Store={persistTask:async id=>{calls.push({kind:'persist',id});return true},dropTask(){}};
       window.Requirements={dateTimestamp:()=>null};
       window.SoduWorkAPI={taskStorageKey:()=> 'issue655-owner',listTeammates:async()=>({mates:[]}),
@@ -52,7 +52,9 @@ if (typeof electron === 'string') {
       esc:v=>String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')};
       Object.assign(proposalCtx,ChatWorkIntent.create(proposalCtx));
       document.getElementById('nchatTaskSuggest').addEventListener('click',e=>{void proposalCtx._proposalAction(e)});
-      proposalCtx._maybeProposal({tools:[{id:'proposal-tool',state:'done',result:${JSON.stringify(JSON.stringify({proposal}))}}]});void 0;`);
+      window.proposalTools=[{id:'old-proposal',state:'done',result:JSON.stringify({proposal:{title:'Earlier suggestion'}})},
+        {id:'proposal-tool',state:'done',result:${JSON.stringify(JSON.stringify({proposal}))}}];
+      proposalCtx._maybeProposal({tools:proposalTools});void 0;`);
     report.before = await js(`({button:document.querySelector('[data-proposal-act="review"]')?.textContent,tasks:tasks.length})`);
     assert.equal(report.before.button,'确认需求与完成标准'); assert.equal(report.before.tasks,0);
     await click('[data-proposal-act="review"]');
@@ -68,6 +70,19 @@ if (typeof electron === 'string') {
     assert.deepEqual(report.after.tasks[0].acceptanceCriteria,proposal.checklist);
     assert.equal(report.after.calls.filter(x=>x.kind==='persist').length,1);
     assert.equal(report.after.calls.filter(x=>x.kind==='parse').length,0);
+    await js("WorkEntrySheet.close(); proposalCtx._maybeProposal({tools:proposalTools});void 0;");
+    assert.equal(await js("Boolean(document.querySelector('[data-proposal-act=review]'))"), false);
+    const next = {...proposal, title:'验证第二条独立需求'};
+    await js(`proposalTools.push({id:'second-proposal',state:'done',result:${JSON.stringify(JSON.stringify({proposal:next}))}});
+      proposalCtx._maybeProposal({tools:proposalTools});void 0;`);
+    await click('[data-proposal-act="review"]');
+    await until('Boolean(document.querySelector("#cpCreate"))');
+    assert.equal(await js("document.querySelector('#cpTitle').value"), next.title);
+    assert.equal(await js('tasks.length'), 1);
+    await click('#cpCreate'); await until('Boolean(document.querySelector(".cp-ok"))');
+    report.second = await js("({titles:tasks.map(t=>t.title),saved:calls.filter(x=>x.kind==='persist').map(x=>x.id)})");
+    assert.deepEqual(report.second.titles.sort(), [proposal.title,next.title].sort());
+    assert.equal(new Set(report.second.saved).size, 2);
     report.ok=true;
   }).catch(async error => {
     report.error=String(error.stack||error);

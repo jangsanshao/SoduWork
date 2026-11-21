@@ -234,21 +234,25 @@
       ctx._proposalFingerprints = new Map();
     }
     const fingerprints = ctx._proposalFingerprints || (ctx._proposalFingerprints = new Map());
+    let latest = null;
     for (let i = tools.length - 1; i >= 0; i--) {
       const t = tools[i];
+      if (!t) continue;
+      // A known proposal marks the boundary between new work and replayed history.
+      if (t.id === ctx._lastProposal) break;
       const id = String(t && t.id || i);
       const result = String(t && t.result || '');
       const fingerprint = [String(t && t.state || ''), Number(t && t.updatedAt || 0),
         result.length, result.slice(0, 64), result.slice(-64)].join('|');
       if (fingerprints.get(id) === fingerprint) continue;
-      fingerprints.set(id, fingerprint);
-      if (t.state !== 'done' || !t.result) continue;
+      if (i >= tools.length - 512) fingerprints.set(id, fingerprint);
+      if (latest || t.state !== 'done' || !t.result) continue;
       let o = null;
       try { o = JSON.parse(result.trim()); } catch (e) { continue; }
-      if (o && o.proposal && o.proposal.title) return { key: t.id, p: o.proposal };
+      if (o && o.proposal && o.proposal.title) latest = { key: t.id, p: o.proposal };
     }
     while (fingerprints.size > 512) fingerprints.delete(fingerprints.keys().next().value);
-    return null;
+    return latest;
   }
 
   function _maybeProposal(snap) {
@@ -294,22 +298,17 @@
     if (btn.dataset.proposalAct === 'review') {
       const got = ctx._pendingProposal;
       if (got.opening) return;
-      const ref = ctx._ref, epoch = ctx._viewEpoch, muted = ctx._proposalMuted;
+      const ref = ctx._ref, epoch = ctx._viewEpoch;
       const owner = global.SoduWorkAPI?.taskStorageKey?.('ops');
       const current = () => ctx._ref === ref && ctx._viewEpoch === epoch &&
-        global.SoduWorkAPI?.taskStorageKey?.('ops') === owner && ctx._lastProposal === got.key;
-      const restore = () => {
-        if (!current()) return;
-        ctx._pendingProposal = got; ctx._proposalMuted = muted; _renderProposal();
-      };
+        global.SoduWorkAPI?.taskStorageKey?.('ops') === owner && ctx._pendingProposal === got;
       got.opening = true; btn.disabled = true;
       try {
         // A structured proposal opens a new confirmation card, never a refinement turn.
         const accepted = await _openWorkAction({ id: 'work.requirement.create', text: '', title: '创建需求' },
           { proposal: got.p });
-        if (!accepted) restore();
+        if (accepted && current()) _dismissProposal(false);
       } catch (error) {
-        restore();
         if (current()) global.petSay?.(String(error?.message || '工作表单没有打开'));
       } finally {
         got.opening = false;

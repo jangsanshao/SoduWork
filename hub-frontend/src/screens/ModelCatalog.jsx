@@ -645,7 +645,7 @@ function DiscoverForm({ provider, onClose, onSaved }) {
       .then((r) => {
         if (!alive) return
         if (!r.ok) { setDetail(r.code ? serverMessage({ key: r.code, params: r.params, fallback: r.detail }) : (r.detail || tx("读取失败"))); setPhase('error'); return }
-        const list = (r.models || []).map((name) => ({ name, checked: true }))
+        const list = (r.models || []).map((name) => ({ name, checked: false }))
         if (list.length === 0) { setPhase('empty'); return }
         setRows(list); setPhase('ready')
       })

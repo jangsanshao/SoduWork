@@ -41,7 +41,7 @@ export default function OperationsCenter() {
       <article><span>{tx("正在运行")}</span><b>{activeRuns}</b><small>{tx("工作流 · ")}{activeSessions}{tx(" 个执行会话")}</small></article>
       <article><span>{tx("执行能力")}</span><b>{runners.accepting || 0}<em> / {runners.total || 0}</em></b><small>{tx("可接活 Runner · 当前负载 ")}{runners.busy || 0}</small></article>
       <article><span>{tx("等待人审")}</span><b>{work.pendingApprovals || 0}</b><small>{tx("只有关键验收关需要人处理")}</small></article>
-      <article><span>{tx("请求健康")}</span><b>{Number(req.errorRate || 0) < .001 ? '99.9+' : (100 - Number(req.errorRate || 0) * 100).toFixed(1)}<em>%</em></b>
+      <article><span>{tx("请求健康")}</span><b>{(req.errorRate === null || req.errorRate === undefined || req.errorRate === 0) ? '100' : (Number(req.errorRate) < .001 ? '99.9+' : (100 - Number(req.errorRate) * 100).toFixed(1))}<em>%</em></b>
         <small>{req.windowMinutes || 30}{tx(" 分钟 · P95 ≤ ")}{req.p95Ms || 0} ms</small></article>
     </div>
 
@@ -92,7 +92,7 @@ export default function OperationsCenter() {
           const ttfb = timing.upstreamHeadersMs?.avgMs
           const admission = timing.admissionMs?.avgMs
           return <article key={row.method + row.route}>
-            <code>{row.method}</code><span title={row.route}>{row.route}</span>
+            <code>{row.method}</code><span title={row.route}>{row.route === "__unmatched__" ? tx("未匹配路由") : row.route}</span>
             <b title={ttfb != null ? tx("上游响应头 ") + ttfb + ' ms' : undefined}>{row.avgMs} ms
               <small>{tx("路由 P95 上界 ")}{row.p95Ms || 0} ms{ttfb != null ? tx(" · 上游响应头 ") + ttfb + ' ms' : ''}{admission != null ? tx(" · 调度 ") + admission + ' ms' : ''}</small>
             </b><em className={row.errors ? 'bad' : ''}>{row.errors || '—'}</em>

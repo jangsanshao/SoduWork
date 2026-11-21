@@ -5,7 +5,7 @@ import { translateText as tx, localeMap, useLocale } from '../i18n.js'
  * signature and integrity checks.
  */
 import React, { useCallback, useEffect, useRef, useState } from 'react'
-import { api, can } from '../api.js'
+import { api, can, getToken } from '../api.js'
 import { Icon, Loading, Modal, Confirm, toast } from '../ui.jsx'
 import './client-releases.css'
 
@@ -354,6 +354,7 @@ function UploadModal({ onClose, onDone }) {
   const [bundleName, setBundleName] = useState('')
   const [installerName, setInstallerName] = useState('')
   const [busy, setBusy] = useState(false)
+  const [progress, setProgress] = useState({ loaded: 0, total: 0 })
   const [error, setError] = useState('')
 
   async function submit() {
@@ -362,10 +363,36 @@ function UploadModal({ onClose, onDone }) {
     if (!bundle) { setError(tx("请选择签名清单（bundle.json）")); return }
     if (!installer) { setError(tx("请选择安装包文件")); return }
     setBusy(true)
+    setProgress({ loaded: 0, total: installer.size })
     setError('')
     try {
-      const data = await api.uploadClientRelease(bundle, installer)
+      const data = await new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest()
+        xhr.open('POST', '/api/v1/admin/client-releases/upload')
+        const token = getToken()
+        if (token) xhr.setRequestHeader('Authorization', 'Bearer ' + token)
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) setProgress({ loaded: e.loaded, total: e.total })
+          else setProgress(old => ({ ...old, loaded: old.loaded + e.loaded }))
+        }
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            try { resolve(JSON.parse(xhr.responseText)) } catch { resolve(null) }
+          } else {
+            try { reject(new Error(JSON.parse(xhr.responseText)?.message || xhr.statusText)) }
+            catch { reject(new Error(xhr.statusText || tx("上传失败"))) }
+          }
+        }
+        xhr.onerror = () => reject(new Error(tx("网络错误，请检查网络连接")))
+        xhr.ontimeout = () => reject(new Error(tx("上传超时")))
+        xhr.timeout = 900000
+        const fd = new FormData()
+        fd.append('bundle', bundle)
+        fd.append('installer', installer)
+        xhr.send(fd)
+      })
       const rel = data && data.release
+      setProgress({ loaded: 1, total: 1 })
       toast(rel
         ? tx("已上传 {0}（{1} / {2}），当前为停用状态，确认后请点「启用」", [rel.version, rel.platform, rel.arch])
         : tx("上传成功"))
@@ -376,15 +403,26 @@ function UploadModal({ onClose, onDone }) {
     setBusy(false)
   }
 
+  const progressPct = progress.total > 0 ? Math.round((progress.loaded / progress.total) * 100) : 0
+  const progressStr = progress.total > 0 ? (progress.total >= 1024 * 1024
+    ? (progress.loaded / 1024 / 1024).toFixed(1) + ' / ' + (progress.total / 1024 / 1024).toFixed(1) + ' MB'
+    : progress.loaded + ' / ' + progress.total + ' B') : ''
+
   return <Modal title={tx("上传客户端发布")} icon="send" onClose={busy ? undefined : onClose}
     foot={<>
-      <button className="btn btn-ghost" disabled={busy} onClick={onClose}>{tx("取消")}</button>
+      <button className="btn btn-ghost" disabled={busy} onClick={busy ? undefined : onClose}>
+        {busy ? tx("上传中，请勿关闭") : tx("取消")}
+      </button>
       <button className="btn btn-primary" disabled={busy} onClick={submit}>
-        {busy ? tx("上传中，安装包较大请稍候…") : tx("上传")}
+        {busy ? tx("上传中…") : tx("上传")}
       </button>
     </>}>
     <div className="cr-upload">
       <p className="cr-upload-hint">{tx("安装包需已按发布流程签名。上传后默认停用，启用时服务端会重验签名与完整性。")}</p>
+      {busy && progress.total > 0 && <div className="cr-upload-progress" role="progressbar" aria-valuenow={progressPct} aria-valuemin="0" aria-valuemax="100">
+        <div className="cr-upload-progress-bar" style={{ width: `${progressPct}%` }} />
+        <span className="cr-upload-progress-text">{tx("上传中 {0}% · {1}", [progressPct, progressStr])}</span>
+      </div>}
       <label className="cr-file-field">
         <span>{tx("签名清单（bundle.json）")}</span>
         <input ref={bundleRef} type="file" accept=".json,application/json" disabled={busy} className="cr-file-native"
